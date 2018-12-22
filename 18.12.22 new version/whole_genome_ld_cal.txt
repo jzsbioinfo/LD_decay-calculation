@@ -1,0 +1,42 @@
+#whole genome ld decay calculation
+#last edit on 18.12.22 by ZS
+
+#去除小的scaffolds(小于500kb),保留多的
+cat 8indv_Kin.vcf | grep -v "#" | for (( i=1;i<=32;i++ )); do grep -w "HiC_scaffold_$i" >> 8indv_Kindel.vcf; done
+
+#为了减小文件大小，每5个SNPS取一个，提取SNP信息
+awk '{ if (NR % 5 ==1) {print $0 } }' 8indv_Kindel.vcf >> 8indv_Kindel5.vcf
+
+#提取vcf的head信息,修改head，将vcf与head merge
+cat 8indv_Kin.vcf | grep "#" > head
+#删除head信息中前面除去的scaffolds信息
+for (( i=33;i<=910;i++ )); do sed -i "/^HiC_scaffold_$i/d" head; done
+#将head复制一份
+cp head 8indv_Kinhead.vcf
+#将SNP信息与head信息合并
+cat 8indv_Kindel5.vcf >> 8indv_Kinhead.vcf
+#删除单独的head和SNP信息
+rm -rf head;rm -rf 8indv_Kindel5.vcf
+#换个名字好看点
+mv 8indv_Kinhead.vcf 8indv_Kinheaddel5.vcf
+
+#将scaffold_id 另外保存到一个文件中，
+cat 8indv_Kinheaddel5.vcf | grep -v '#' | cut -f 1 | awk '{print $0 "\t" $0}' > 8kinscid.txt
+
+##从这步开始可以批量操作，将下面的命令放在bash中即可
+
+
+#将VCF文件转换成plink格式 .ped和.map 文件
+vcftools --vcf 8indv_Kinheaddel5.vcf --plink --chrom-map 8kinscid.txt --out 8indv_Kinheaddel5 --allow-extra-chr
+
+#将文件转换成bed,bim,fam
+/usr/share/plink_linux_x86_64_20181202/plink --file 8indv_Kinheaddel5 --make-bed --out 8indv_Kinheaddel5 --allow-extra-chr
+
+#使用bed,bim,fam文件输入，计算ld decay ,--bfile
+/usr/share/plink_linux_x86_64_20181202/plink --allow-extra-chr --bfile indv_Kinheaddel5 --allow-no-sex --maf 0.5 --r2 --ld-window-kb 500 --ld-window 500000 --ld-window-r2 0 --out indv_Kinheaddel5
+
+#为了将输出ld文件压缩，只提取距离和r2值
+cat indv_Kinheaddel5.ld | grep -v 'CHR_A' | awk '{print ($5-$2) "\t" $7}' | sort -n -k 1 > indv_Kinheaddel5.ld.sort
+
+#每隔100nt计算100nt以内r2平均值便于作图
+python compress_ld.py indv_Kinheaddel5.ld.sort indv_Kinheaddel5.ld.sort.cp
